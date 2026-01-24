@@ -1,0 +1,21 @@
+# virtual env
+.venv/
+
+# data
+data/raw/
+data/processed/*.pkl
+
+# artifacts
+artifacts/*.pkl
+artifacts/*.csv
+
+# notebooks
+.ipynb_checkpoints/
+
+# python
+__pycache__/
+*.pyc
+
+# os / ide
+.DS_Store
+.idea/
