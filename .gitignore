@@ -1,21 +1,49 @@
-# virtual env
-.venv/
-
-# data
-data/raw/
-data/processed/*.pkl
-
-# artifacts
-artifacts/*.pkl
-artifacts/*.csv
-
-# notebooks
-.ipynb_checkpoints/
-
-# python
+# ===============================
+# Python / IDE
+# ===============================
 __pycache__/
 *.pyc
+*.pyo
+*.pyd
 
-# os / ide
-.DS_Store
+.venv/
+env/
 .idea/
+.vscode/
+
+# ===============================
+# Jupyter
+# ===============================
+.ipynb_checkpoints/
+
+# ===============================
+# Данные (исходные и производные)
+# ===============================
+data/raw/
+data/processed/
+data/target/
+
+# ===============================
+# Артефакты моделей
+# ===============================
+artifacts/
+data/processed/*.pkl
+
+# ===============================
+# Логи и эксперименты (CatBoost, TensorBoard)
+# ===============================
+notebooks/catboost_info/
+*.tsv
+*.json
+events.out.tfevents*
+
+# ===============================
+# Временные файлы
+# ===============================
+tmp/
+
+# ===============================
+# OS
+# ===============================
+.DS_Store
+Thumbs.db

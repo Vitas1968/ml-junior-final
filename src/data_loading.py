@@ -41,8 +41,14 @@ def aggregate_by_id(df: pd.DataFrame, id_col: str = "id") -> pd.DataFrame:
 
     agg_df = (
         df.groupby(id_col, as_index=False)[numeric_cols]
-        .mean()
+        .agg(["mean", "max"])
+#        .mean()
     )
+    # выравниваем имена колонок
+    agg_df.columns = [
+        f"{col}_{stat}" if stat else col
+        for col, stat in agg_df.columns
+    ]
     return agg_df
 
 
