@@ -13,11 +13,14 @@ processed-файлы напрямую НЕ используются.
 from pathlib import Path
 import random
 import joblib
+import json
 import pandas as pd
 
 from src.preprocessing import (
     load_base_dataset,
     apply_feature_engineering,
+    encode_categoricals,
+    align_to_feature_columns,
 )
 
 # ============================================================
@@ -25,6 +28,7 @@ from src.preprocessing import (
 # ============================================================
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 MODEL_PATH = PROJECT_ROOT / "artifacts" / "model.pkl"
+FEATURE_COLUMNS_PATH = PROJECT_ROOT / "artifacts" / "feature_columns.json"
 
 
 # ============================================================
@@ -66,6 +70,11 @@ def main():
            "Файл model.pkl не найден. "
            "Сначала запусти: python -m src.pipeline"
         )
+    if not FEATURE_COLUMNS_PATH.exists():
+        raise FileNotFoundError(
+           "Файл feature_columns.json не найден. "
+           "Сначала запусти: python -m src.pipeline"
+        )
     # 2. Проверка наличия raw-данных
     raw_dir = PROJECT_ROOT / "data" / "raw"
     if not raw_dir.exists() or not any(raw_dir.glob("*.pq")):
@@ -79,12 +88,21 @@ def main():
     print("▶ Preparing features via preprocessing...")
     df = load_base_dataset()
     df = apply_feature_engineering(df)
+    df_encoded = encode_categoricals(df)
+    feature_columns = json.loads(
+        FEATURE_COLUMNS_PATH.read_text(encoding="utf-8")
+    )
+    features = align_to_feature_columns(
+        df_encoded.drop(columns=["id"]),
+        feature_columns,
+    )
+    df_features = pd.concat([df["id"], features], axis=1)
 
     # --------------------------------------------------------
     # Подсказка: 10 случайных id
     # --------------------------------------------------------
     print("\nСлучайные id из датасета:")
-    sample_ids = random.sample(df["id"].tolist(), 10)
+    sample_ids = random.sample(df_features["id"].tolist(), 10)
     for uid in sample_ids:
         print(uid)
 
@@ -100,7 +118,7 @@ def main():
 
         try:
             uid = int(raw)
-            proba = predict_for_user(model, df, uid)
+            proba = predict_for_user(model, df_features, uid)
             risk = interpret_risk(proba)
 
             print(

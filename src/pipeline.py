@@ -13,15 +13,18 @@ Production training pipeline.
 """
 
 from pathlib import Path
+import json
 import joblib
 import pandas as pd
 
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import roc_auc_score
 
-import lightgbm as lgb
-
-from src.preprocessing import run_preprocessing
+from src.preprocessing import (
+    run_preprocessing,
+    encode_categoricals,
+    align_to_feature_columns,
+)
 from src.modeling import train_model
 
 # ============================================================
@@ -33,6 +36,7 @@ ARTIFACTS_DIR.mkdir(parents=True, exist_ok=True)
 
 MODEL_PATH = ARTIFACTS_DIR / "model.pkl"
 PREDICTIONS_PATH = ARTIFACTS_DIR / "predictions.csv"
+FEATURE_COLUMNS_PATH = ARTIFACTS_DIR / "feature_columns.json"
 
 
 # ============================================================
@@ -51,8 +55,12 @@ def load_dataset() -> pd.DataFrame:
 # 2. Train / Test split
 # ============================================================
 def split_data(df: pd.DataFrame):
-    X = df.drop(columns=["flag", "id"])
+    X = df.drop(columns=["flag"])
     y = df["flag"]
+
+    X = encode_categoricals(X)
+    feature_columns = [col for col in X.columns if col != "id"]
+    X = align_to_feature_columns(X, feature_columns)
 
     return train_test_split(
         X,
@@ -60,7 +68,7 @@ def split_data(df: pd.DataFrame):
         test_size=0.2,
         random_state=42,
         stratify=y,
-    )
+    ) + (feature_columns,)
 
 
 
@@ -89,9 +97,12 @@ def save_validation_predictions(model, X_test, y_test):
 # ============================================================
 # 6. Обучение на полном датасете
 # ============================================================
-def train_full_model(df: pd.DataFrame):
-    X = df.drop(columns=["flag", "id"])
+def train_full_model(df: pd.DataFrame, feature_columns: list[str]):
+    X = df.drop(columns=["flag"])
     y = df["flag"]
+
+    X = encode_categoricals(X)
+    X = align_to_feature_columns(X, feature_columns)
 
     model = train_model(X, y)
     return model
@@ -103,7 +114,7 @@ def main():
     df = load_dataset()
 
     print("▶ Splitting data...")
-    X_train, X_test, y_train, y_test = split_data(df)
+    X_train, X_test, y_train, y_test, feature_columns = split_data(df)
 
     print("▶ Training model (train split) ...")
     model = train_model(X_train, y_train)
@@ -113,10 +124,14 @@ def main():
     print(f"ROC-AUC (test): {roc_auc:.4f}")
 
     print("▶ Training FINAL model on full dataset...")
-    final_model = train_full_model(df)
+    final_model = train_full_model(df, feature_columns)
 
     print("▶ Saving artifacts...")
     save_validation_predictions(model, X_test, y_test)
+    FEATURE_COLUMNS_PATH.write_text(
+        json.dumps(feature_columns, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
 
     print("▶ Saving FINAL model...")
     joblib.dump(final_model, MODEL_PATH)

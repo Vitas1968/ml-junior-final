@@ -34,21 +34,32 @@ def load_parquet_iter(
 def aggregate_by_id(df: pd.DataFrame, id_col: str = "id") -> pd.DataFrame:
     """
     Базовая агрегация признаков на уровне заявки (id).
-    Используем mean как безопасный baseline.
+    Используем mean/max для числовых и моду для категориальных.
     """
     numeric_cols = df.select_dtypes(include="number").columns.tolist()
     numeric_cols = [c for c in numeric_cols if c != id_col]
 
-    agg_df = (
+    cat_cols = df.select_dtypes(include=["object", "category"]).columns.tolist()
+    cat_cols = [c for c in cat_cols if c != id_col]
+
+    agg_numeric = (
         df.groupby(id_col, as_index=False)[numeric_cols]
         .agg(["mean", "max"])
-#        .mean()
     )
-    # выравниваем имена колонок
-    agg_df.columns = [
+    agg_numeric.columns = [
         f"{col}_{stat}" if stat else col
-        for col, stat in agg_df.columns
+        for col, stat in agg_numeric.columns
     ]
+
+    if cat_cols:
+        agg_cat = (
+            df.groupby(id_col, as_index=False)[cat_cols]
+            .agg(lambda x: x.mode().iloc[0] if not x.mode().empty else x.iloc[0])
+        )
+        agg_df = agg_numeric.merge(agg_cat, on=id_col, how="left")
+    else:
+        agg_df = agg_numeric
+
     return agg_df
 
 
@@ -67,10 +78,14 @@ def build_base_dataset() -> pd.DataFrame:
         agg_chunk = aggregate_by_id(chunk)
         aggregated_chunks.append(agg_chunk)
 
-    dataset = (
-        pd.concat(aggregated_chunks, axis=0)
-        .groupby("id", as_index=False)
-        .mean()
-    )
+    dataset = pd.concat(aggregated_chunks, axis=0)
+    numeric_cols = dataset.select_dtypes(include="number").columns.tolist()
+    numeric_cols = [c for c in numeric_cols if c != "id"]
+    cat_cols = dataset.select_dtypes(include=["object", "category"]).columns.tolist()
 
+    agg_map: dict[str, str | callable] = {col: "mean" for col in numeric_cols}
+    for col in cat_cols:
+        agg_map[col] = lambda x: x.mode().iloc[0] if not x.mode().empty else x.iloc[0]
+
+    dataset = dataset.groupby("id", as_index=False).agg(agg_map)
     return dataset
