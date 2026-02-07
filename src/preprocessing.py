@@ -19,6 +19,8 @@ from src.data_loading import build_base_dataset
 from src.feature_engineering import (
     add_overdue_features,
     add_limit_ratio_features,
+    add_payment_discipline_features,
+    add_credit_timeline_features,
 )
 
 # ============================================================
@@ -54,7 +56,30 @@ def apply_feature_engineering(df: pd.DataFrame) -> pd.DataFrame:
     df = df.copy()
     df = add_overdue_features(df)
     df = add_limit_ratio_features(df)
+    df = add_payment_discipline_features(df)
+    df = add_credit_timeline_features(df)
     return df
+
+
+def encode_categoricals(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Применяет OHE для категориальных колонок.
+    """
+    df = df.copy()
+    cat_cols = df.select_dtypes(include=["object", "category"]).columns
+    if len(cat_cols) == 0:
+        return df
+    return pd.get_dummies(df, columns=cat_cols, dummy_na=True)
+
+
+def align_to_feature_columns(
+    df: pd.DataFrame,
+    feature_columns: list[str],
+) -> pd.DataFrame:
+    """
+    Выравнивает набор фичей по сохранённому списку колонок.
+    """
+    return df.reindex(columns=feature_columns, fill_value=0)
 
 
 # ============================================================

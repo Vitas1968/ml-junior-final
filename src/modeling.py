@@ -1,23 +1,22 @@
 # обучение моделей
 
-import lightgbm as lgb
+from catboost import CatBoostClassifier
 
-def train_model(X_train, y_train) -> lgb.LGBMClassifier:
+
+def train_model(X_train, y_train) -> CatBoostClassifier:
     pos = y_train.sum()
     neg = len(y_train) - pos
     scale_pos_weight = neg / pos
-    model = lgb.LGBMClassifier(
-        n_estimators=600,
-        learning_rate=0.03,
-        num_leaves=128,
-        max_depth=10,
-        subsample=0.9,
-        colsample_bytree=0.9,
+    model = CatBoostClassifier(
+        iterations=800,
+        learning_rate=0.05,
+        depth=8,
+        loss_function="Logloss",
+        eval_metric="AUC",
         scale_pos_weight=scale_pos_weight,
-        random_state=42,
-        n_jobs=-1
+        random_seed=42,
+        verbose=False,
     )
 
     model.fit(X_train, y_train)
     return model
-
