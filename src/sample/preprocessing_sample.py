@@ -15,8 +15,10 @@ Production preprocessing pipeline.
 from pathlib import Path
 import pandas as pd
 
-from src.data_loading import build_base_dataset
-from src.feature_engineering import (
+from src.sample.data_loading_sample import build_base_dataset
+from src.sample.feature_engineering_sample import (
+    add_overdue_structure_features,
+    add_payment_risk_features,
     add_overdue_features,
     add_limit_ratio_features,
     add_payment_discipline_features,
@@ -26,7 +28,7 @@ from src.feature_engineering import (
 # ============================================================
 # Пути
 # ============================================================
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
+PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 
 RAW_DATA_DIR = PROJECT_ROOT / "data" / "raw"
 TARGET_PATH = PROJECT_ROOT / "data" / "target" / "train_target.csv"
@@ -55,8 +57,10 @@ def apply_feature_engineering(df: pd.DataFrame) -> pd.DataFrame:
     """
     df = df.copy()
     df = add_overdue_features(df)
+    df = add_overdue_structure_features(df)
     df = add_limit_ratio_features(df)
     df = add_payment_discipline_features(df)
+    df = add_payment_risk_features(df)
     df = add_credit_timeline_features(df)
     return df
 
@@ -132,19 +136,18 @@ def run_preprocessing(with_target: bool = True) -> Path:
     # никаких обращений к enc_paym_0 здесь нет и быть не должно
     df = apply_feature_engineering(df)
 
-    print("▶ Aggregating FE features by id...")
-    df = aggregate_fe_by_id(df)
+    # print("▶ Aggregating FE features by id...")
+    # df = aggregate_fe_by_id(df)
 
     assert df.index.is_unique
     assert "id" in df.columns
-    assert not any(c.startswith("enc_paym_") for c in df.columns)
 
     if with_target:
         print("▶ Merging with target...")
         df = merge_with_target(df)
-        output_name = "dataset_with_target.pkl"
+        output_name = "dataset_with_target_sample.pkl"
     else:
-        output_name = "dataset_features.pkl"
+        output_name = "dataset_features_sample.pkl"
 
     path = save_dataset(df, output_name)
 
@@ -153,7 +156,15 @@ def run_preprocessing(with_target: bool = True) -> Path:
 
 
 def aggregate_fe_by_id(df: pd.DataFrame) -> pd.DataFrame:
-    # OHE-признаки НЕ агрегируем повторно
+    """
+    Агрегирует ТОЛЬКО FE-признаки.
+    enc_paym_* считаем уже агрегированными — не трогаем.
+    """
+
+    # enc_paym_* — уже *_max, их НЕ агрегируем
+    paym_cols = [c for c in df.columns if c.startswith("enc_paym_")]
+
+    # OHE по credit_type — тоже не агрегируем
     ohe_cols = [
         c for c in df.columns
         if c.startswith("enc_loans_credit_type_")
@@ -162,7 +173,7 @@ def aggregate_fe_by_id(df: pd.DataFrame) -> pd.DataFrame:
     fe_cols = [
         c for c in df.columns
         if c not in ["id", "rn"]
-        and not c.startswith("enc_paym_")
+        and c not in paym_cols
         and c not in ohe_cols
     ]
 
@@ -177,12 +188,13 @@ def aggregate_fe_by_id(df: pd.DataFrame) -> pd.DataFrame:
         for col in df_num.columns
     ]
 
-    # OHE уже по id → просто берём
-    df_ohe = (
-        df[["id"] + ohe_cols]
+    # enc_paym_* + OHE → просто берём
+    df_static = (
+        df[["id"] + paym_cols + ohe_cols]
         .drop_duplicates("id")
         .reset_index(drop=True)
     )
 
-    return df_num.merge(df_ohe, on="id", how="left")
+    return df_num.merge(df_static, on="id", how="left")
+
 

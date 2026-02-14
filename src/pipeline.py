@@ -1,6 +1,4 @@
 """
-
-
 Production training pipeline.
 
 Назначение:
@@ -55,20 +53,23 @@ def load_dataset() -> pd.DataFrame:
 # 2. Train / Test split
 # ============================================================
 def split_data(df: pd.DataFrame):
-    X = df.drop(columns=["flag"])
-    y = df["flag"]
+    target_col = "flag"
 
-    X = encode_categoricals(X)
-    feature_columns = [col for col in X.columns if col != "id"]
-    X = align_to_feature_columns(X, feature_columns)
+    X = df.drop(columns=[target_col])
+    y = df[target_col]
 
-    return train_test_split(
+    feature_columns = X.columns.tolist()
+
+    X_train, X_test, y_train, y_test = train_test_split(
         X,
         y,
         test_size=0.2,
         random_state=42,
-        stratify=y,
-    ) + (feature_columns,)
+        stratify=y
+    )
+
+    return X_train, X_test, y_train, y_test, feature_columns
+
 
 
 
@@ -104,7 +105,7 @@ def train_full_model(df: pd.DataFrame, feature_columns: list[str]):
     X = encode_categoricals(X)
     X = align_to_feature_columns(X, feature_columns)
 
-    model = train_model(X, y)
+    model = train_model(X, y, X, y)
     return model
 # ============================================================
 # 6. Главный entrypoint
@@ -113,30 +114,30 @@ def main():
     print("▶ Loading dataset...")
     df = load_dataset()
 
-    print("▶ Splitting data...")
-    X_train, X_test, y_train, y_test, feature_columns = split_data(df)
-
-    print("▶ Training model (train split) ...")
-    model = train_model(X_train, y_train)
-
-    print("▶ Evaluating model...")
-    roc_auc = evaluate_model(model, X_test, y_test)
-    print(f"ROC-AUC (test): {roc_auc:.4f}")
-
-    print("▶ Training FINAL model on full dataset...")
-    final_model = train_full_model(df, feature_columns)
-
-    print("▶ Saving artifacts...")
-    save_validation_predictions(model, X_test, y_test)
-    FEATURE_COLUMNS_PATH.write_text(
-        json.dumps(feature_columns, ensure_ascii=False, indent=2),
-        encoding="utf-8",
-    )
-
-    print("▶ Saving FINAL model...")
-    joblib.dump(final_model, MODEL_PATH)
-
-    print("✔ Pipeline completed successfully")
+    # print("▶ Splitting data...")
+    # X_train, X_test, y_train, y_test, feature_columns = split_data(df)
+    #
+    # print("▶ Training model (train split) ...")
+    # model = train_model(X_train, y_train, X_test, y_test)
+    #
+    # print("▶ Evaluating model...")
+    # roc_auc = evaluate_model(model, X_test, y_test)
+    # print(f"ROC-AUC (test): {roc_auc:.4f}")
+    #
+    # print("▶ Training FINAL model on full dataset...")
+    # final_model = train_full_model(df, feature_columns)
+    #
+    # print("▶ Saving artifacts...")
+    # save_validation_predictions(model, X_test, y_test)
+    # FEATURE_COLUMNS_PATH.write_text(
+    #     json.dumps(feature_columns, ensure_ascii=False, indent=2),
+    #     encoding="utf-8",
+    # )
+    #
+    # print("▶ Saving FINAL model...")
+    # joblib.dump(final_model, MODEL_PATH)
+    #
+    # print("✔ Pipeline completed successfully")
 
 
 if __name__ == "__main__":

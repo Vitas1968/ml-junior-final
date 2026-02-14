@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Iterable, List
 
 import pandas as pd
+import numpy as np
 
 
 RAW_DATA_DIR = Path(__file__).resolve().parent.parent / "data" / "raw"
@@ -27,65 +28,88 @@ def load_parquet_iter(
     Итеративно читает parquet-файлы.
     """
     for file in files:
-        df = pd.read_parquet(file, columns=columns)
-        yield df
+        yield pd.read_parquet(file, columns=columns)
 
 
-def aggregate_by_id(df: pd.DataFrame, id_col: str = "id") -> pd.DataFrame:
+def aggregate_by_id(df: pd.DataFrame) -> pd.DataFrame:
     """
-    Базовая агрегация признаков на уровне заявки (id).
-    Используем mean/max для числовых и моду для категориальных.
+    Агрегация числовых признаков по id.
+    Псевдокатегориальные признаки ИСКЛЮЧЕНЫ.
     """
-    numeric_cols = df.select_dtypes(include="number").columns.tolist()
-    numeric_cols = [c for c in numeric_cols if c != id_col]
 
-    cat_cols = df.select_dtypes(include=["object", "category"]).columns.tolist()
-    cat_cols = [c for c in cat_cols if c != id_col]
+    # псевдокатегориальные признаки — НЕ агрегируем как числа
+    categorical_like = {
+        "enc_loans_credit_type",
+        "enc_loans_credit_status",
+        "enc_loans_account_holder_type",
+        "enc_loans_account_cur",
+    }
 
-    agg_numeric = (
-        df.groupby(id_col, as_index=False)[numeric_cols]
-        .agg(["mean", "max"])
-    )
-    agg_numeric.columns = [
-        f"{col}_{stat}" if stat else col
-        for col, stat in agg_numeric.columns
+    numeric_cols = [
+        c for c in df.select_dtypes(include="number").columns
+        if c not in categorical_like and c not in {"id"}
     ]
 
-    if cat_cols:
-        agg_cat = (
-            df.groupby(id_col, as_index=False)[cat_cols]
-            .agg(lambda x: x.mode().iloc[0] if not x.mode().empty else x.iloc[0])
-        )
-        agg_df = agg_numeric.merge(agg_cat, on=id_col, how="left")
-    else:
-        agg_df = agg_numeric
+    agg_map = {col: ["mean", "max"] for col in numeric_cols}
 
-    return agg_df
+    df_agg = (
+        df.groupby("id", as_index=False)
+          .agg(agg_map)
+    )
+
+    # выравниваем имена колонок
+    df_agg.columns = [
+        "id" if col[0] == "id" else f"{col[0]}_{col[1]}"
+        for col in df_agg.columns
+    ]
+
+    return df_agg
+
 
 
 def build_base_dataset() -> pd.DataFrame:
-    """
-    Основная функция:
-    - читает parquet-файлы итеративно
-    - агрегирует признаки по id
-    - объединяет всё в единый DataFrame
-    """
     parquet_files = get_parquet_files()
 
-    aggregated_chunks = []
+    num_chunks = []
+    ohe_chunks = []
 
     for chunk in load_parquet_iter(parquet_files):
-        agg_chunk = aggregate_by_id(chunk)
-        aggregated_chunks.append(agg_chunk)
+        # числовая агрегация (как было)
+        agg_num = aggregate_by_id(chunk)
+        num_chunks.append(agg_num)
 
-    dataset = pd.concat(aggregated_chunks, axis=0)
-    numeric_cols = dataset.select_dtypes(include="number").columns.tolist()
-    numeric_cols = [c for c in numeric_cols if c != "id"]
-    cat_cols = dataset.select_dtypes(include=["object", "category"]).columns.tolist()
+        # OHE по credit_type
+        agg_ohe = aggregate_ohe_share(
+            chunk,
+            col="enc_loans_credit_type",
+            id_col="id"
+        )
+        ohe_chunks.append(agg_ohe)
 
-    agg_map: dict[str, str | callable] = {col: "mean" for col in numeric_cols}
-    for col in cat_cols:
-        agg_map[col] = lambda x: x.mode().iloc[0] if not x.mode().empty else x.iloc[0]
+    # объединяем чанки
+    num_df = pd.concat(num_chunks, axis=0)
+    num_df = num_df.groupby("id", as_index=False).mean()
 
-    dataset = dataset.groupby("id", as_index=False).agg(agg_map)
+    ohe_df = pd.concat(ohe_chunks, axis=0)
+
+    # финальный merge
+    dataset = num_df.merge(ohe_df, on="id", how="left")
+
     return dataset
+
+
+def aggregate_ohe_share(df: pd.DataFrame, col: str, id_col: str = "id") -> pd.DataFrame:
+    """
+    One-Hot Encode категориального признака и агрегация долей по id
+    """
+    ohe = pd.get_dummies(df[col], prefix=col)
+    ohe[id_col] = df[id_col]
+
+    return (
+        ohe
+        .groupby(id_col, as_index=False)
+        .mean()
+    )
+
+
+

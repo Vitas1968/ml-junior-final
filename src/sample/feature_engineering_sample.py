@@ -67,6 +67,98 @@ def add_overdue_features(df: pd.DataFrame) -> pd.DataFrame:
 
     return df
 
+def add_overdue_structure_features(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Усиление overdue-сигнала:
+    работаем ТОЛЬКО с *_max, без новых агрегаций и без памяти.
+    """
+    df = df.copy()
+
+    # ожидаемые колонки (если каких-то нет — считаем их нулями)
+    c5   = df.get("pre_loans5_max", 0)
+    c30  = df.get("pre_loans530_max", 0)
+    c60  = df.get("pre_loans3060_max", 0)
+    c90  = df.get("pre_loans6090_max", 0)
+    c90p = df.get("pre_loans90_max", 0)
+
+    # 1) максимальная глубина просрочки (0..4)
+    df["overdue_max_bucket"] = (
+        (c5   > 0).astype(int) * 1 +
+        (c30  > 0).astype(int) * 2 +
+        (c60  > 0).astype(int) * 3 +
+        (c90  > 0).astype(int) * 4 +
+        (c90p > 0).astype(int) * 5
+    )
+
+    # 2) эскалация: были ли разные уровни (структура, а не сумма)
+    df["overdue_levels_cnt"] = (
+        (c5   > 0).astype(int) +
+        (c30  > 0).astype(int) +
+        (c60  > 0).astype(int) +
+        (c90  > 0).astype(int) +
+        (c90p > 0).astype(int)
+    )
+
+    # 3) флаг тяжёлой просрочки (60+)
+    df["has_overdue_60_plus"] = ((c60 > 0) | (c90 > 0) | (c90p > 0)).astype(int)
+
+    # 4) флаг экстремальной просрочки (90+)
+    df["has_overdue_90_plus"] = (c90p > 0).astype(int)
+
+    # 5) нелинейная тяжесть (взвешенно, без mean)
+    df["overdue_severity_weighted"] = (
+        1 * (c5   > 0).astype(int) +
+        2 * (c30  > 0).astype(int) +
+        3 * (c60  > 0).astype(int) +
+        4 * (c90  > 0).astype(int) +
+        5 * (c90p > 0).astype(int)
+    )
+
+    return df
+
+
+def add_payment_risk_features(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Усиленные поведенческие признаки на базе enc_paym_*_max.
+    Лёгкие по памяти, сильные по сигналу.
+    """
+    df = df.copy()
+
+    paym_cols = [c for c in df.columns if c.startswith("enc_paym_")]
+
+    if not paym_cols:
+        # если вдруг нет paym — просто выходим
+        return df
+
+    paym_max = df[paym_cols].max(axis=1)
+
+    # 1️⃣ Был ли вообще плохой платёж
+    df["paym_any_bad"] = (paym_max > 0).astype(int)
+
+    # 2️⃣ Максимальная тяжесть
+    df["paym_max_severity"] = paym_max
+
+    # 3️⃣ Кол-во типов с тяжестью >= 2
+    df["paym_bad_cnt_ge_2"] = (df[paym_cols] >= 2).sum(axis=1)
+
+    # 4️⃣ Кол-во типов с тяжестью >= 3
+    df["paym_bad_cnt_ge_3"] = (df[paym_cols] >= 3).sum(axis=1)
+
+    # 5️⃣ Взвешенная тяжесть (усиливает редкие пики)
+    df["paym_severity_weighted"] = (
+        (df[paym_cols] >= 1).sum(axis=1)
+        + 2 * (df[paym_cols] >= 2).sum(axis=1)
+        + 3 * (df[paym_cols] >= 3).sum(axis=1)
+    )
+
+    # 6️⃣ Дискретный bucket риска
+    df["paym_bad_bucket"] = (
+        (paym_max >= 1).astype(int)
+        + (paym_max >= 2).astype(int)
+        + (paym_max >= 3).astype(int)
+    )
+
+    return df
 
 def add_limit_ratio_features(df: pd.DataFrame) -> pd.DataFrame:
     """
